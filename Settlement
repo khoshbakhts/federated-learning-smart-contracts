@@ -1,0 +1,143 @@
+'use strict';
+
+const { Contract } = require('fabric-contract-api');
+
+class SettlementMechanismContract extends Contract {
+
+    // Initialize the contract with an initial balance for each bank
+    async initLedger(ctx) {
+        const initialBalances = [
+            { bankId: 'BANK1', balance: 100000 }, // Initial balance in Digital Rial
+            { bankId: 'BANK2', balance: 100000 },
+            { bankId: 'BANK3', balance: 100000 },
+        ];
+
+        for (const bank of initialBalances) {
+            await ctx.stub.putState(bank.bankId, Buffer.from(JSON.stringify(bank)));
+        }
+
+        console.log('Settlement Mechanism Contract has been instantiated with initial balances.');
+    }
+
+    // Get the current balance of a specific bank
+    async getBalance(ctx, bankId) {
+        const balanceJSON = await ctx.stub.getState(bankId);
+        if (!balanceJSON || balanceJSON.length === 0) {
+            throw new Error(`Balance for bank ${bankId} does not exist.`);
+        }
+        return balanceJSON.toString();
+    }
+
+    // Transfer funds between banks
+    async transferFunds(ctx, fromBankId, toBankId, amount) {
+        const amountToTransfer = parseFloat(amount);
+        if (amountToTransfer <= 0) {
+            throw new Error('Transfer amount must be a positive number.');
+        }
+
+        // Get the balance of the sender bank
+        const fromBankJSON = await ctx.stub.getState(fromBankId);
+        if (!fromBankJSON || fromBankJSON.length === 0) {
+            throw new Error(`Bank ${fromBankId} does not exist.`);
+        }
+        const fromBank = JSON.parse(fromBankJSON.toString());
+
+        // Get the balance of the recipient bank
+        const toBankJSON = await ctx.stub.getState(toBankId);
+        if (!toBankJSON || toBankJSON.length === 0) {
+            throw new Error(`Bank ${toBankId} does not exist.`);
+        }
+        const toBank = JSON.parse(toBankJSON.toString());
+
+        // Check if the sender has enough balance
+        if (fromBank.balance < amountToTransfer) {
+            throw new Error(`Bank ${fromBankId} has insufficient balance.`);
+        }
+
+        // Transfer the funds
+        fromBank.balance -= amountToTransfer;
+        toBank.balance += amountToTransfer;
+
+        // Update the ledger with new balances
+        await ctx.stub.putState(fromBankId, Buffer.from(JSON.stringify(fromBank)));
+        await ctx.stub.putState(toBankId, Buffer.from(JSON.stringify(toBank)));
+
+        return `Transferred ${amount} Digital Rial from bank ${fromBankId} to bank ${toBankId}.`;
+    }
+
+    // Apply a penalty to a bank
+    async applyPenalty(ctx, bankId, penaltyAmount) {
+        const penalty = parseFloat(penaltyAmount);
+        if (penalty <= 0) {
+            throw new Error('Penalty amount must be a positive number.');
+        }
+
+        const bankJSON = await ctx.stub.getState(bankId);
+        if (!bankJSON || bankJSON.length === 0) {
+            throw new Error(`Bank ${bankId} does not exist.`);
+        }
+
+        const bank = JSON.parse(bankJSON.toString());
+
+        // Deduct penalty from bank's balance
+        if (bank.balance < penalty) {
+            throw new Error(`Bank ${bankId} has insufficient balance to pay the penalty.`);
+        }
+
+        bank.balance -= penalty;
+
+        await ctx.stub.putState(bankId, Buffer.from(JSON.stringify(bank)));
+        return `Penalty of ${penaltyAmount} Digital Rial applied to bank ${bankId}. New balance is ${bank.balance}.`;
+    }
+
+    // Charge a participation fee to a bank
+    async chargeParticipationFee(ctx, bankId, feeAmount) {
+        const fee = parseFloat(feeAmount);
+        if (fee <= 0) {
+            throw new Error('Fee amount must be a positive number.');
+        }
+
+        const bankJSON = await ctx.stub.getState(bankId);
+        if (!bankJSON || bankJSON.length === 0) {
+            throw new Error(`Bank ${bankId} does not exist.`);
+        }
+
+        const bank = JSON.parse(bankJSON.toString());
+
+        // Deduct fee from bank's balance
+        if (bank.balance < fee) {
+            throw new Error(`Bank ${bankId} has insufficient balance to pay the fee.`);
+        }
+
+        bank.balance -= fee;
+
+        await ctx.stub.putState(bankId, Buffer.from(JSON.stringify(bank)));
+        return `Participation fee of ${feeAmount} Digital Rial charged to bank ${bankId}. New balance is ${bank.balance}.`;
+    }
+
+    // Get the ledger of all banks with their balances
+    async getAllBalances(ctx) {
+        const startKey = '';
+        const endKey = '';
+        const iterator = await ctx.stub.getStateByRange(startKey, endKey);
+        const allResults = [];
+
+        while (true) {
+            const res = await iterator.next();
+
+            if (res.value && res.value.value.toString()) {
+                const key = res.value.key;
+                const value = res.value.value.toString();
+                allResults.push({ key, value });
+            }
+
+            if (res.done) {
+                await iterator.close();
+                break;
+            }
+        }
+        return JSON.stringify(allResults);
+    }
+}
+
+module.exports = SettlementMechanismContract;
