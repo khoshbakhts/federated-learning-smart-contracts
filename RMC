@@ -1,0 +1,113 @@
+'use strict';
+
+const { Contract } = require('fabric-contract-api');
+
+class ReputationManagementContract extends Contract {
+
+    // Initialize the contract with initial reputation scores
+    async initLedger(ctx) {
+        const initialReputations = [
+            { bankId: 'BANK1', reputation: 100 },
+            { bankId: 'BANK2', reputation: 100 },
+            { bankId: 'BANK3', reputation: 100 },
+        ];
+
+        for (const reputation of initialReputations) {
+            await ctx.stub.putState(reputation.bankId, Buffer.from(JSON.stringify(reputation)));
+        }
+
+        console.log('Reputation Management Contract has been instantiated with initial reputation scores.');
+    }
+
+    // Get the reputation score of a specific bank
+    async getReputation(ctx, bankId) {
+        const reputationJSON = await ctx.stub.getState(bankId);
+        if (!reputationJSON || reputationJSON.length === 0) {
+            throw new Error(`Reputation for bank ${bankId} does not exist.`);
+        }
+        return reputationJSON.toString();
+    }
+
+    // Update the reputation score of a specific bank
+    async updateReputation(ctx, bankId, delta) {
+        const reputationJSON = await ctx.stub.getState(bankId);
+        if (!reputationJSON || reputationJSON.length === 0) {
+            throw new Error(`Reputation for bank ${bankId} does not exist.`);
+        }
+
+        const reputation = JSON.parse(reputationJSON.toString());
+        reputation.reputation += parseFloat(delta);
+
+        // Ensure that reputation does not fall below zero
+        if (reputation.reputation < 0) {
+            reputation.reputation = 0;
+        }
+
+        await ctx.stub.putState(bankId, Buffer.from(JSON.stringify(reputation)));
+        return `Reputation for bank ${bankId} updated to ${reputation.reputation}.`;
+    }
+
+    // Adjust reputations based on model performance evaluation
+    async evaluateModelContribution(ctx, bankId, performanceScore) {
+        // Fetch the current reputation
+        const reputationJSON = await ctx.stub.getState(bankId);
+        if (!reputationJSON || reputationJSON.length === 0) {
+            throw new Error(`Reputation for bank ${bankId} does not exist.`);
+        }
+
+        const reputation = JSON.parse(reputationJSON.toString());
+
+        // Adjust reputation based on performance score
+        const performanceDelta = this.calculateReputationDelta(performanceScore);
+        reputation.reputation += performanceDelta;
+
+        // Ensure that reputation does not fall below zero
+        if (reputation.reputation < 0) {
+            reputation.reputation = 0;
+        }
+
+        // Update the reputation on the ledger
+        await ctx.stub.putState(bankId, Buffer.from(JSON.stringify(reputation)));
+        return `Reputation for bank ${bankId} evaluated and updated to ${reputation.reputation}.`;
+    }
+
+    // Calculate reputation delta based on performance score
+    calculateReputationDelta(performanceScore) {
+        // Example calculation: Increase or decrease reputation based on performance score
+        if (performanceScore >= 90) {
+            return 10; // High performance, increase reputation
+        } else if (performanceScore >= 70) {
+            return 5; // Moderate performance, slight increase
+        } else if (performanceScore >= 50) {
+            return 0; // Neutral performance, no change
+        } else {
+            return -10; // Poor performance, decrease reputation
+        }
+    }
+
+    // Get all reputations from the ledger
+    async getAllReputations(ctx) {
+        const startKey = '';
+        const endKey = '';
+        const iterator = await ctx.stub.getStateByRange(startKey, endKey);
+        const allResults = [];
+
+        while (true) {
+            const res = await iterator.next();
+
+            if (res.value && res.value.value.toString()) {
+                const key = res.value.key;
+                const value = res.value.value.toString();
+                allResults.push({ key, value });
+            }
+
+            if (res.done) {
+                await iterator.close();
+                break;
+            }
+        }
+        return JSON.stringify(allResults);
+    }
+}
+
+module.exports = ReputationManagementContract;
