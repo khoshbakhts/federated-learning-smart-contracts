@@ -1,0 +1,108 @@
+'use strict';
+
+const { Contract } = require('fabric-contract-api');
+const crypto = require('crypto');
+
+class AggregationSmartContract extends Contract {
+
+    // Initialize the contract with the first global model
+    async initLedger(ctx) {
+        const initialModel = {
+            globalModelHash: 'INITIAL_MODEL_HASH',
+            aggregatedModels: [],
+            timestamp: new Date().toISOString(),
+        };
+        await ctx.stub.putState('GLOBAL_MODEL', Buffer.from(JSON.stringify(initialModel)));
+        console.log('Aggregation Smart Contract has been instantiated with the initial global model.');
+    }
+
+    // Submit a validated model update for aggregation
+    async submitValidatedModel(ctx, bankId, modelHash, modelUpdate, weight) {
+        // Retrieve the current global model state
+        const globalModel = await this.getGlobalModel(ctx);
+
+        // Add the new model update to the aggregated models list
+        const modelContribution = {
+            bankId,
+            modelHash,
+            modelUpdate,
+            weight: parseFloat(weight), // Ensure the weight is a number
+            timestamp: new Date().toISOString(),
+        };
+        globalModel.aggregatedModels.push(modelContribution);
+
+        // Update the global model state
+        await ctx.stub.putState('GLOBAL_MODEL', Buffer.from(JSON.stringify(globalModel)));
+        return `Model update from bank ${bankId} has been added to the aggregation list.`;
+    }
+
+    // Aggregate all submitted models into a new global model
+    async aggregateModels(ctx) {
+        // Retrieve the current global model state
+        const globalModel = await this.getGlobalModel(ctx);
+
+        // Ensure there are models to aggregate
+        if (globalModel.aggregatedModels.length === 0) {
+            throw new Error('No model updates available for aggregation.');
+        }
+
+        // Perform weighted aggregation of the models
+        const aggregatedModel = this.weightedAggregation(globalModel.aggregatedModels);
+
+        // Generate a hash for the new global model
+        const newGlobalModelHash = this.computeHash(JSON.stringify(aggregatedModel));
+
+        // Update the global model with the new aggregated model
+        const updatedGlobalModel = {
+            globalModelHash: newGlobalModelHash,
+            aggregatedModels: [],
+            aggregatedModel,
+            timestamp: new Date().toISOString(),
+        };
+
+        // Store the updated global model on the blockchain
+        await ctx.stub.putState('GLOBAL_MODEL', Buffer.from(JSON.stringify(updatedGlobalModel)));
+        return `Global model has been successfully updated with hash ${newGlobalModelHash}.`;
+    }
+
+    // Retrieve the current global model from the blockchain
+    async getGlobalModel(ctx) {
+        const globalModelJSON = await ctx.stub.getState('GLOBAL_MODEL');
+        if (!globalModelJSON || globalModelJSON.length === 0) {
+            throw new Error('Global model does not exist.');
+        }
+        return JSON.parse(globalModelJSON.toString());
+    }
+
+    // Perform weighted aggregation of the submitted model updates
+    weightedAggregation(modelUpdates) {
+        const aggregatedModel = {};
+        let totalWeight = 0;
+
+        // Sum the weights and initialize the aggregated model
+        modelUpdates.forEach(update => {
+            totalWeight += update.weight;
+            for (let key in update.modelUpdate) {
+                if (!aggregatedModel[key]) {
+                    aggregatedModel[key] = 0;
+                }
+            }
+        });
+
+        // Calculate the weighted average for each model parameter
+        modelUpdates.forEach(update => {
+            for (let key in update.modelUpdate) {
+                aggregatedModel[key] += update.modelUpdate[key] * (update.weight / totalWeight);
+            }
+        });
+
+        return aggregatedModel;
+    }
+
+    // Compute a cryptographic hash for the aggregated model
+    computeHash(data) {
+        return crypto.createHash('sha256').update(data).digest('hex');
+    }
+}
+
+module.exports = AggregationSmartContract;
