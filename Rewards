@@ -1,0 +1,94 @@
+'use strict';
+
+const { Contract } = require('fabric-contract-api');
+
+class FederatedLearningRewardsContract extends Contract {
+
+    // Initialize the contract with a reward pool and participant details
+    async initLedger(ctx) {
+        const initialData = {
+            rewardPool: 1000000, // Initial reward pool in Digital Rial
+            participants: []
+        };
+
+        await ctx.stub.putState('REWARD_POOL', Buffer.from(JSON.stringify(initialData)));
+        console.log('Federated Learning Rewards Contract has been instantiated with initial reward pool.');
+    }
+
+    // Register a new participant bank
+    async registerParticipant(ctx, bankId, walletAddress) {
+        const rewardPool = await this.getRewardPool(ctx);
+        
+        // Check if the participant already exists
+        if (rewardPool.participants.some(p => p.bankId === bankId)) {
+            throw new Error(`Bank with ID ${bankId} is already registered.`);
+        }
+
+        // Add new participant
+        const newParticipant = { bankId, walletAddress, totalRewards: 0 };
+        rewardPool.participants.push(newParticipant);
+
+        await ctx.stub.putState('REWARD_POOL', Buffer.from(JSON.stringify(rewardPool)));
+        return `Bank ${bankId} has been registered successfully.`;
+    }
+
+    // Submit model contribution and calculate reward
+    async submitModelContribution(ctx, bankId, modelHash, contributionScore) {
+        const rewardPool = await this.getRewardPool(ctx);
+
+        // Validate participant
+        const participant = rewardPool.participants.find(p => p.bankId === bankId);
+        if (!participant) {
+            throw new Error(`Bank with ID ${bankId} is not registered.`);
+        }
+
+        // Calculate reward based on contribution score
+        const reward = this.calculateReward(contributionScore, rewardPool.rewardPool);
+
+        // Update participant's total rewards
+        participant.totalRewards += reward;
+
+        // Deduct reward from reward pool
+        rewardPool.rewardPool -= reward;
+
+        // Update state with new reward distribution
+        await ctx.stub.putState('REWARD_POOL', Buffer.from(JSON.stringify(rewardPool)));
+        return `Reward of ${reward} Digital Rial distributed to bank ${bankId} for model ${modelHash}.`;
+    }
+
+    // Calculate reward based on contribution score and available reward pool
+    calculateReward(contributionScore, rewardPool) {
+        // Example reward calculation logic: proportional distribution
+        const maxScore = 100; // Assume max score is 100
+        const reward = (contributionScore / maxScore) * rewardPool * 0.05; // 5% of the pool is distributed per contribution
+        return reward;
+    }
+
+    // Get the current reward pool and participant information
+    async getRewardPool(ctx) {
+        const rewardPoolJSON = await ctx.stub.getState('REWARD_POOL');
+        if (!rewardPoolJSON || rewardPoolJSON.length === 0) {
+            throw new Error('Reward pool is not initialized.');
+        }
+        return JSON.parse(rewardPoolJSON.toString());
+    }
+
+    // Transfer rewards to participant's wallet (dummy implementation)
+    async distributeRewards(ctx, bankId) {
+        const rewardPool = await this.getRewardPool(ctx);
+        const participant = rewardPool.participants.find(p => p.bankId === bankId);
+
+        if (!participant) {
+            throw new Error(`Bank with ID ${bankId} is not registered.`);
+        }
+
+        // Simulate transfer to participant's wallet
+        const amountToTransfer = participant.totalRewards;
+        participant.totalRewards = 0; // Reset rewards after distribution
+
+        await ctx.stub.putState('REWARD_POOL', Buffer.from(JSON.stringify(rewardPool)));
+        return `Transferred ${amountToTransfer} Digital Rial to wallet ${participant.walletAddress} for bank ${bankId}.`;
+    }
+}
+
+module.exports = FederatedLearningRewardsContract;
