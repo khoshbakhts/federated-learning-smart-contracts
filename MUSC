@@ -1,0 +1,71 @@
+'use strict';
+
+const { Contract } = require('fabric-contract-api');
+const crypto = require('crypto');
+
+class ModelUpdateSubmissionContract extends Contract {
+
+    // Initialization method for the contract
+    async initLedger(ctx) {
+        console.log('Model Update Submission Contract has been instantiated');
+    }
+
+    // Submit a new model update
+    async submitModelUpdate(ctx, bankId, modelHash, signature) {
+        // Validate the signature
+        const isValid = this.verifySignature(bankId, modelHash, signature);
+        if (!isValid) {
+            throw new Error('Invalid signature. Model update submission rejected.');
+        }
+
+        // Check if the model update already exists
+        const modelUpdateExists = await this.modelUpdateExists(ctx, modelHash);
+        if (modelUpdateExists) {
+            throw new Error(`Model update with hash ${modelHash} already exists.`);
+        }
+
+        // Create a new model update record
+        const modelUpdate = {
+            bankId,
+            modelHash,
+            timestamp: new Date().toISOString(),
+        };
+
+        // Save the model update to the ledger
+        await ctx.stub.putState(modelHash, Buffer.from(JSON.stringify(modelUpdate)));
+        return `Model update from bank ${bankId} with hash ${modelHash} has been successfully submitted and recorded.`;
+    }
+
+    // Verify the digital signature of the model update
+    verifySignature(bankId, modelHash, signature) {
+        // Simulate fetching the bank's public key from a database or configuration
+        const publicKey = this.getBankPublicKey(bankId);
+
+        // Create a verifier object with the public key
+        const verifier = crypto.createVerify('SHA256');
+        verifier.update(modelHash);
+        verifier.end();
+
+        // Verify the signature
+        const isVerified = verifier.verify(publicKey, signature, 'hex');
+        return isVerified;
+    }
+
+    // Check if a model update already exists
+    async modelUpdateExists(ctx, modelHash) {
+        const modelUpdateJSON = await ctx.stub.getState(modelHash);
+        return modelUpdateJSON && modelUpdateJSON.length > 0;
+    }
+
+    // Simulated method to get a bank's public key (In a real-world scenario, this would be fetched from a secure source)
+    getBankPublicKey(bankId) {
+        // Dummy public key for demonstration purposes
+        const dummyPublicKey = '-----BEGIN PUBLIC KEY-----\n' +
+            'MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAL0rTfTbQ6ZBKw5X8NkQo0pC8GQ6FI1h\n' +
+            'f5o3e5ZkQ5E3M4p1MZ6v/9FC8O/WZyEd/7JH1o/ZL3MsYJsK8DFl0E8CAwEAAQ==\n' +
+            '-----END PUBLIC KEY-----';
+        return dummyPublicKey;
+    }
+}
+
+module.exports = ModelUpdateSubmissionContract;
